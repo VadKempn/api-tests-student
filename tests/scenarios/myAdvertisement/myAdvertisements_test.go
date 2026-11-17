@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/tidwall/gjson"
 
+	"api-tests-template/internal/constants"
+
 	"api-tests-template/internal/managers/auth"
 	"api-tests-template/internal/managers/auth/models"
 	"api-tests-template/internal/managers/myAdvertisements"
@@ -38,28 +40,33 @@ func (s *TestSuite) TearDownSuite() {
 
 // Positive: Проверяем получение собственных объявлений в профиле
 func (s *TestSuite) TestGetMyAdvertisementsPositive() {
+	createdID := base.CreateAdvertisement(s.T(), s.loginData.Token)
 	var advertisementsBody string
 	s.Run("Получаем список собственных объявлений", func() {
-		advertisementsBody = myAdvertisements.GetMyAdvertisements(s.T(), s.loginData.Token, http.StatusOK, 50)
+		advertisementsBody = myAdvertisements.GetMyAdvertisements(s.T(), s.loginData.Token, http.StatusOK, constants.PageSize)
 	})
 
 	var items gjson.Result
-	s.Run("Проверяем, что у нас есть несколько добавленных ранее объявлений", func() {
+	s.Run("Проверяем, что собственное тестовое объявление есть в списке", func() {
 		items = gjson.Get(advertisementsBody, "items")
 		require.NotEmpty(s.T(), items.Array())
 	})
 
 	s.Run("Проверяем, что наши объявления имеют принадлежность к нашему пользователю и объявления имеют НЕ пустые параметры", func() {
+		var createdItem gjson.Result
 		for _, item := range items.Array() {
-			require.Equal(s.T(), s.loginData.User.Id, gjson.Get(item.String(), "user_id").String(), "user_id не совпадает")
-
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "id").String(), "id пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "created_at").String(), "created_at пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "updated_at").String(), "updated_at пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "title").String(), "Название пустое")
-			require.NotEmpty(s.T(), gjson.Get(item.String(), "description").String(), "Описание пустое")
-			require.True(s.T(), len(gjson.Get(item.String(), "photos").Array()) > 0, "Присутствуют пустые фотографии")
+			if item.Get("id").String() == createdID {
+				createdItem = item
+				break
+			}
 		}
+		require.True(s.T(), createdItem.Exists(), "Созданное тестом объявление отсутствует в списке")
+		require.Equal(s.T(), s.loginData.User.Id, createdItem.Get("user_id").String(), "user_id не совпадает")
+		require.NotEmpty(s.T(), createdItem.Get("created_at").String(), "created_at пустое")
+		require.NotEmpty(s.T(), createdItem.Get("updated_at").String(), "updated_at пустое")
+		require.NotEmpty(s.T(), createdItem.Get("title").String(), "Название пустое")
+		require.NotEmpty(s.T(), createdItem.Get("description").String(), "Описание пустое")
+		require.NotEmpty(s.T(), createdItem.Get("photos").Array(), "Присутствуют пустые фотографии")
 	})
 }
 
@@ -67,13 +74,13 @@ func (s *TestSuite) TestGetMyAdvertisementsPositive() {
 func (s *TestSuite) TestGetMyAdvertisementsIncorrectToken() {
 	var advertisementsBody string
 	s.Run("Получаем список собственных объявлений с неправильным авторизационным токеном", func() {
-		advertisementsBody = myAdvertisements.GetMyAdvertisements(s.T(), "incorrect_token", http.StatusUnauthorized, 50)
+		advertisementsBody = myAdvertisements.GetMyAdvertisements(s.T(), constants.InvalidToken, http.StatusUnauthorized, constants.PageSize)
 	})
 
 	s.Run("Проверяем, что показывается правильная ошибка", func() {
-		require.Equal(s.T(), "unauthorized", gjson.Get(advertisementsBody, "error").String(),
+		require.Equal(s.T(), constants.Unauthorized, gjson.Get(advertisementsBody, "error").String(),
 			"Некорректное значение error параметра")
-		require.Equal(s.T(), "Invalid or expired token", gjson.Get(advertisementsBody, "message").String(),
+		require.Equal(s.T(), constants.InvalidAuthorizationMessage, gjson.Get(advertisementsBody, "message").String(),
 			"Некорректное значение message параметра")
 	})
 }
